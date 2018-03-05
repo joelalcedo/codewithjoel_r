@@ -1,5 +1,5 @@
 # Tutorial Content
-You can find the code for each episode after the videos have been posted.
+You can find the code for each episode after the videos have been posted here: https://www.youtube.com/joelalcedo
 
 Tutorial 1: Data Wrangling
 

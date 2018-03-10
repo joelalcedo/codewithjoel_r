@@ -3,10 +3,28 @@ You can find the code for each episode after the videos have been posted here: h
 
 Tutorial 1: Data Wrangling
 
-Tutorial 2: Data Visualization
+```
+library(tidyverse)
+library(Quandl)
 
-Tutorial 3: Automated Trading in Interactive Brokers
+#Apple Stock Data
+Quandl('WIKI/AAPL') #quandl's function to pull in data
 
-Tutorial 4: Portfolio Construction & Optimization
+#VWAP for apple start from 2015 to now
 
-Tutorial 5: Linear Regression & Forecasting Basics
+aapl <- Quandl('WIKI/AAPL')
+
+vwap <- aapl %>% #then
+  # ggplot()+
+  # geom_line(aes(x = Date,
+  #               y = Close))
+  select(Date, 'Adj. Close', 'Adj. Volume') %>% #selects columns
+  rename(Close = 'Adj. Close', Volume = 'Adj. Volume') %>% #rename columns
+  filter(Date >= '2015-01-01') %>% #subset your rows
+  #summary() #summary statistics
+  mutate(Volume = Volume/sum(Volume)) %>% #modify existing columns, or create new ones
+  mutate(CloseShare = Close * Volume) %>%
+  summarize(VWAP = round(sum(CloseShare), 2)) #collapses and summarises the data
+
+vwap
+```

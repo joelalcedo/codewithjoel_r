@@ -2,7 +2,7 @@
 You can find the code for each episode after the videos have been posted here: https://www.youtube.com/joelalcedo
 
 Tutorial 2: Data Visualization
-
+```
 #Libraries:
   #  - tidyverse      (wrangling + plotting)
   #  - wbstats        (data)
@@ -155,3 +155,4 @@ p2 <- highchart(type = 'stock') %>%
   hc_add_series(xts(rep(30, nrow(AMD)), index(AMD)), name = 'Oversold', yAxis = 2, color = 'green') %>%
   hc_add_series(xts(rep(70, nrow(AMD)), index(AMD)), name = 'Overbought', yAxis = 2, color = 'red')
 
+```

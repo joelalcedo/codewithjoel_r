@@ -1,0 +1,272 @@
+---
+title: "R Tutorial #3: Cryto/Stock Return Data, Calculating Returns & Uncorrelated Clusters"
+output: html_notebook
+---
+
+# Packages that will be used
+```{r}
+library(tidyverse) # collection of packages for data wrangling & data science
+library(crypto2) # an easy way to pull crypto currency data
+library(lubridate) # working with date/times
+library(rvest) # web scraping
+library(stats) # statistics package
+library(magrittr) # operators that reduce development time 
+library(quantmod) # package useful for quantitative trading & research
+library(tidyquant) # a wrapper with convenient functions 
+library(dendextend) # a package for creating visually appealing dendrograms
+library(PortfolioAnalytics) # a package to quickly evaluate portfolio performance
+library(janitor) #used in the tutorial for the "clean_names()" function
+```
+
+
+#SECTION 1 - GET A LIST OF ALL CRYPTO TICKERS, AND THEIR PRICE HISTORY
+```{r}
+
+crypto_list() #lists all cryptocurrencies
+
+crypto_currency <- crypto_history(limit = 1) #pulls price history for one currency (most likely BTC)
+
+crypto_currency %>% 
+  mutate(timestamp = as.Date(as.character(timestamp))) %>% 
+  ggplot()+
+  geom_line(aes(timestamp, close)) #visualize the price history
+
+crypto_currency$name %>% unique() #check how many unique cryptos are in your dataset
+
+top_100_by_marketcap <- 
+crypto_list() %>% #list all cryptos agaon
+  arrange(rank) %>% #arrange the based on market cap rank
+  slice(1:100) #select rows 1 to 100
+
+top_100_crypto_prices <-
+crypto_history(top_100_by_marketcap) %>% #get data for all 100 coins
+  mutate(timestamp = as.Date(as.character(timestamp))) #fix the timestamp into a date object
+
+```
+
+#SECTION 2 - CALCULATE CRYPTOCURRENCY RETURNS
+```{r}
+
+crypto_daily_returns <- 
+top_100_crypto_prices %>% 
+  arrange(symbol, timestamp) %>% #make sure to arrange the data first so the lag calculations aren't erroneous
+  group_by(symbol) %>%  
+  mutate(daily_return = close/lag(close, 1)-1) %>% #calculate the return in prices
+  select(timestamp, name, symbol, daily_return) #select a subset of the columns - not 100% neccecary
+
+crypto_daily_returns #view the final results
+
+```
+
+#SECTION 3 - WORKING WITH HIERARCHICAL CLUSTERING ALGORITHM
+```{r}
+
+hc <- 
+crypto_daily_returns %>% 
+  pivot_wider(id_cols = timestamp, names_from = name, values_from = daily_return) %>% #make the data wide, instead of long
+  select(-timestamp) %>% #remove the timestamp - we want to exclude these from the calculation
+  cor(use = 'complete.obs') %>% #correlation matrix 
+  abs() %>% #absolute value
+  dist() %>% #distance matrix
+  hclust() #hierarchical clustering
+
+hc %>% 
+  as.dendrogram() %>% #convert clustering object into dendrogram
+  plot() #view the results
+
+number_clusters <- 3 #how many clusters do you want to select
+
+#use the ggdend function to make the chart workable in ggplot
+hc %>% 
+  as.dendrogram() %>% 
+  color_branches(k = number_clusters) %>% 
+  color_labels(k = number_clusters) %>% 
+  set('labels_cex', 0.5) %>% 
+  # plot()
+  as.ggdend() %>% 
+  ggplot() +
+  labs(title = 'Dendrogram of the top 100 Cryptocurrencies by market cap')
+
+```
+
+#SECTION 4: CLASSIFY EACH CRYPTO INTO A CORRESPONDING CLUSTER
+```{r}
+
+#extract the cluster values for each cryptocurrency
+cutree(hc, k = number_clusters) %>% 
+  as.data.frame() %>% 
+  rename(cluster = 1) %>% 
+  mutate(token_name = rownames(.)) %>% 
+  filter(cluster == 3)
+
+```
+
+#SECTION 5: GET ALL PRICE HISTORY FOR S&P500 COMPANIES
+```{r}
+
+#example of the tidyquant function, visualizing apple's stock price
+tidyquant::tq_get('AAPL') %>% 
+  ggplot() +
+  geom_line(aes(date, adjusted))
+
+stock_table_url <- 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies' #url that has all stock tickers in the S&P500
+
+#scrape the data and convert it into a table
+all_historical_spx_ticker <- 
+stock_table_url %>% 
+  read_html() %>% 
+  html_nodes(css = 'table') %>% 
+  extract() %>% 
+  html_table(fill = T)
+
+# all_historical_spx_ticker[2] #view the delisted / changed ticker list
+
+# assign list of tickers to a dataframe
+current_spx_tickers <- 
+ all_historical_spx_ticker[[1]] %>% 
+   janitor::clean_names() 
+
+pull_all_data <- . %>% print() %>% tq_get() %>% as.data.frame() #function that prints the ticker, then returns the data
+
+tq_get('BRK.B') #example of BRK.B - this won't work, so on line 137 below we adjust the ticker string
+
+'MMM' %>% pull_all_data() #example of the function above in action
+
+all_spx_prices <- #provides price history for all tickers in the S&P500
+current_spx_tickers %>% 
+  mutate(symbol = stringr::str_replace_all(string = symbol, pattern = '[.]', replacement = '-')) %>% 
+  mutate(data = map(symbol, pull_all_data)) %>% 
+  select(-symbol) %>%
+  unnest_legacy()
+
+# all_spx_prices <- read_csv('spx_historical_prices.csv')
+
+# all_spx_prices %>% 
+#   select(-symbol) %>% 
+#   unnest_legacy() %>% #pull(symbol) %>% unique() 
+
+```
+
+
+#SECTION 6 PASS THEM THROUGH THE HCLUST ALGO
+```{r}
+
+#this chunk is a repeat of the crypto returns, but for stocks. view the dendrogram to see the different clusters
+
+wide_stock_returns <- 
+all_spx_prices %>% 
+  select(date, security,symbol, adjusted) %>% 
+  arrange(symbol, date) %>% 
+  group_by(symbol) %>%
+  mutate(daily_return = adjusted/lag(adjusted)-1) %>% 
+  na.omit() %>% 
+  pivot_wider(id_cols = date, names_from = security, values_from = daily_return) 
+
+hc <- 
+wide_stock_returns %>% 
+  select(-date) %>% 
+  cor(use = 'complete.obs') %>% 
+  dist() %>% 
+  hclust()
+
+
+hc %>% 
+  as.dendrogram() %>% 
+  color_branches(k = 6) %>%
+  color_labels(k = 6) %>%
+  set('labels_cex', 0.5) %>% 
+  # plot()
+  as.ggdend() %>% 
+  ggplot() +
+  labs(title = 'Dendrogram of the S&P500 Constituents')
+
+
+```
+
+#SECTION 7 NAIVE PORTFOLIO CONSTRUCTION: RANDOMLY SELECT ONE STOCK FROM EACH CLUSTER; COMPARE A PORTFOLIO OF 1 SINGLE CLUSTER
+```{r}
+
+ #assigns cluster to the stock
+stock_clusters <- 
+cutree(hc, k = 6) %>%
+  as.data.frame() %>% 
+  rename(cluster=1) %>% 
+  mutate(company_name = rownames(.))
+
+#randomly pick 1 stock in each cluster
+randomly_selected_stocks <-  
+stock_clusters %>% 
+  group_by(cluster) %>% 
+  sample_n(size = 1) 
+
+#cluster you want to use as a correlated portfolio
+target_cluster <- 4
+
+#randomly pick 6 stocks in your target cluster
+individual_cluster <- 
+stock_clusters %>% 
+  filter(cluster == target_cluster) %>% 
+  sample_n(size = 6)
+
+
+#create a portfolio from stocks selected from each cluster group
+portfolio_1 <- 
+all_spx_prices %>% 
+  filter(security %in% randomly_selected_stocks$company_name) %>% 
+  arrange(symbol, date) %>% 
+  group_by(symbol) %>% 
+  mutate(closing_price = adjusted/lag(adjusted, 1)-1) %>% 
+  pivot_wider(id_cols = date, names_from = symbol, values_from=closing_price)
+
+#create another portfolio from stocks selected from a single cluster group
+portfolio_2 <- 
+all_spx_prices %>% 
+  filter(security %in% individual_cluster$company_name) %>% 
+  arrange(symbol, date) %>% 
+  group_by(symbol) %>% 
+  mutate(closing_price = adjusted/lag(adjusted, 1)-1) %>% 
+  pivot_wider(id_cols = date, names_from = symbol, values_from=closing_price)
+
+#convert the portfolio data into an XTS object, used by the portfolio analytics package
+portfolio_1_xts <- xts(x = portfolio_1[-1], order.by = portfolio_1$date, frequency = 252)
+portfolio1_returns <- Return.portfolio(portfolio_1_xts)
+
+#convert the portfolio data into an XTS object, used by the portfolio analytics package
+portfolio_2_xts <- xts(x = portfolio_2[-1], order.by = portfolio_2$date, frequency = 252)
+portfolio2_returns <- Return.portfolio(portfolio_2_xts)
+
+#calculate the sharpe ratio for both portfolios
+SharpeRatio.annualized(R = xts(x = portfolio1_returns, frequency = 252))
+SharpeRatio.annualized(R = xts(x = portfolio2_returns, frequency = 252))
+
+#compare the two portfolios - cumulative returns since inception
+portfolio1_returns %>% 
+  as.data.frame() %>% 
+  mutate(date = rownames(.),
+         date = ymd(date)) %>%
+  rename(DiversifiedPorfolio=1) %>% 
+  inner_join(
+    portfolio2_returns %>% 
+    as.data.frame() %>% 
+    mutate(date = rownames(.),
+           date = ymd(date)) %>% 
+        rename(SingleClusterPorfolio=1)
+  ) %>% 
+  arrange(date) %>% 
+  mutate(DiversifiedPorfolio_Cumulative = cumprod(1+DiversifiedPorfolio)-1,
+         SingleClusterPorfolio_Cumulative = cumprod(1+SingleClusterPorfolio)-1) %>% 
+  ggplot() +
+  geom_hline(aes(yintercept = 0), color = 'black')+
+  geom_line(aes(date, SingleClusterPorfolio_Cumulative), color = 'blue') +
+  geom_line(aes(date, DiversifiedPorfolio_Cumulative), color = 'orange') +
+  labs(title = 'Comparison of Portfolio Returns',
+       subtitle = 'Portfolio using hierarchical clustering (orange) vs. Single Cluster (blue)',
+       y = 'cumulative return (%)') +
+  scale_y_continuous(labels= scales::percent)
+
+# annualized return of the two portfolios
+Return.annualized(R = xts(x = portfolio1_returns, frequency = 252))
+Return.annualized(R = xts(x = portfolio2_returns, frequency = 252))
+
+
+```
